@@ -1,0 +1,324 @@
+---
+title: "Two Faces of the Moon"
+subtitle: "Pink Floyd’s Evolution Before and After Syd Barrett"
+author: "Sepehr Akbari"
+date: "2024-12-11"
+abstract: "How did Syd Barrett’s departure shape the evolution of Pink Floyd’s sound, as reflected in key musical features, and what does this reveal about the band’s artistic transformation?"
+format:
+  html:
+    theme: united
+    toc: true
+    code-fold: true
+    abstract-title: "Research Focus"
+embed-resources: true
+chunk_output_type: console
+editor_options: 
+  chunk_output_type: console
+---
+
+## Echoes of Change
+
+Music evolves as a reflection of the forces shaping its creators. Pink Floyd is a prime example of how external and internal changes influence artistic direction. Syd Barrett, the band’s original creative mastermind, is widely credited with shaping their early identity as a psychedelic rock band. However, his departure in 1968 due to mental health struggles marks a profound turning point in their history [^1].
+
+[^1]: [Pink Floyd Wikipedia](https://en.wikipedia.org/wiki/Pink_Floyd)
+
+In this project, I investigate whether this transformation can be quantified through measurable changes in their music. Specifically, I analyze the energy levels of their songs, a Spotify-defined metric that captures the intensity and activity [^2] of a track. Energy is a useful proxy for several other musical attributes, such as mood, tempo, and instrumental variation, making it an ideal choice for tracing Pink Floyd’s evolution.
+
+[^2]: [Spotify Web-API Docs](https://developer.spotify.com/documentation/web-api/reference/get-audio-features)
+
+I’ll focus on the following hypotheses to guide this analysis:
+
+- **Null Hypothesis ($H_0$):** There is no significant difference in energy between Pink Floyd’s pre- and post-Barrett eras.
+
+- **Alternative Hypothesis ($H_1$):** There is a significant decrease in energy between Pink Floyd’s pre- and post-Barrett eras.
+
+Through this lens, I aim to uncover how Barrett’s absence shaped the band’s artistic trajectory and influenced their broader legacy in music history.
+
+## Breathe (In the Data)
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "packages & libraries"
+
+library(gt) # for creating neater tables
+library(here) # for managing file paths
+library(tidyverse) # for data manipulation and visualization
+library(splines) # for spline-based regression
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "loading data"
+
+path <- here("Data", "PinkFloyd.csv") # path to the dataset
+pink_floyd <- read_csv(path) # loading the dataset[^1]
+```
+
+The Dataset is downloaded from Kaggle [^3], and originally sourced from the Spotify Web API.
+
+[^3]: [Pink Floyd Audio Features](https://www.kaggle.com/datasets/thebumpkin/pink-floyd-all-the-tracks-with-spotify-data/data)
+
+## Obscured by Data
+
+Before diving into the analysis, I need to prepare the dataset. First, I enrich it by adding the release year for each album [^4]. This allows me to place each album within its historical context and track changes over time.
+
+[^4]: [UCR: Pink Floyd Discography](https://ultimateclassicrock.com/pink-floyd-album-discography/)
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "adding dates"
+
+pink_floyd <- pink_floyd %>% 
+  # Creating new column for release year
+  mutate(Year = case_when( # Assigning release years to albums
+    Album_Name == "The Piper at the Gates of Dawn" ~ 1967,
+    Album_Name == "A Saucerful of Secrets" ~ 1968,
+    Album_Name == "More" ~ 1969,
+    Album_Name == "Ummagumma" ~ 1969,
+    Album_Name == "Atom Heart Mother" ~ 1970,
+    Album_Name == "Meddle" ~ 1971,
+    Album_Name == "Obscured by Clouds" ~ 1972,
+    Album_Name == "The Dark Side of the Moon" ~ 1973,
+    Album_Name == "Wish You Were Here" ~ 1975,
+    Album_Name == "Animals" ~ 1977,
+    Album_Name == "The Wall" ~ 1979,
+    Album_Name == "The Final Cut" ~ 1983,
+    Album_Name == "A Momentary Lapse of Reason" ~ 1987,
+    Album_Name == "The Division Bell" ~ 1994,
+    Album_Name == "The Endless River" ~ 2014
+  ))
+```
+
+Next, I filter out albums released after 1985. Pink Floyd’s history can be divided into distinct phases, and my focus is on the band as it existed during its most cohesive period. Roger Waters’ departure in 1985 [^5] represents another major shift, making it logical to exclude albums from this later era to maintain a consistent scope for the analysis.
+
+[^5]: [Pink Floyd's Break Up](https://otherbrick.com/why-did-pink-floyd-break-up/)
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "filtering albums"
+
+pink_floyd <- pink_floyd %>% 
+  filter(Year < 1985) # Including only albums released before 1985
+```
+
+Finally, I categorize the albums into two eras: pre- and post-Barrett. Albums such as *More (1969)*, which bear Barrett’s stylistic influence even though he did not actively contribute to them [^6], are included in the pre-Barrett era. Meanwhile, *Ummagumma (1969)* is excluded because it is more of an experimental solo effort by the band members than a cohesive Pink Floyd album [^7]. These decisions ensure that my analysis is focused and aligned with the research question.
+
+[^6]: [SputnikMusik: More Album Review](https://www.sputnikmusic.com/review/88783/Pink-Floyd-More/)
+
+[^7]: [SputnikMusik: Ummagumma Album Review](https://www.sputnikmusic.com/review/88810/Pink-Floyd-Ummagumma/)
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "defining eras"
+
+pre_barrett_albums <- c("The Piper at the Gates of Dawn",
+                        "A Saucerful of Secrets",
+                        "More") # Albums with Barrett's influence
+
+pink_floyd <- pink_floyd %>% 
+  filter(Album_Name != "Ummagumma") %>% # Excluding Ummagumma
+  mutate(Era = case_when( # Categorizing albums into pre- and post-Barrett eras
+    Album_Name %in% pre_barrett_albums ~ "Pre-Barrett",
+    TRUE ~ "Post-Barrett"
+  ))
+```
+
+## Pulses of Evolution
+
+To understand the band’s evolution, I calculate the average energy levels of their albums. This is important because Pink Floyd is known for their album-wide storytelling, where each track contributes to a larger narrative. So it makes sense to focus on the album as a whole rather than individual songs.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "album averages"
+
+pink_floyd_albums <- pink_floyd %>%
+  group_by(Album_Name, 
+           Year, 
+           Era) %>% # Grouping by album, year and era
+  summarize(Avg_Energy = mean(Energy)) # Calculating average energy levels for each
+```
+
+To get a visual sense of how energy levels have changed over time, I plot the data using a boxplot, which shows the distribution of energy levels for each era.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "tidying data"
+
+pink_floyd_albums_tidy <- pink_floyd_albums %>% 
+  # Having each row represent a single observation about Features
+  pivot_longer(cols = Avg_Energy, 
+               names_to = "Feature",
+               values_to = "Value")
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "visualizing data"
+#| fig-alt: "Boxplot showing energy levels by era"
+
+ggplot(
+  pink_floyd_albums_tidy,
+  aes(x = Year,
+      y = Value,
+      fill = Era) # Coloring by era
+) +
+  geom_boxplot() + # Creating boxplot
+  labs(
+    title = "Energy Levels by Era",
+    x = "Release Year",
+    y = NULL,
+    fill = NULL,
+    caption = "Source: Kaggle — Spotify Web API" # citing the source
+  ) +
+  theme_minimal() + # For a clear look
+  theme(legend.position = "top") + # For aesthetics only
+  scale_fill_brewer(palette = "Dark2") # For accessible colors
+```
+
+This initial plot shows how the Pre-Barrett era is characterized by consistently higher and more narrowly distributed energy levels, while the Post-Barrett era shows greater variability and a lower median energy level. This shift reflects the band’s transition from Barrett’s psychedelic influence to more experimental and diverse styles. However, the story is not linear. To capture the nuanced evolution of energy levels over time, I fit a spline regression curve to the data, visualizing the rise and fall of energy across the years.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "visualizing data"
+#| fig-alt: "Scatterplot showing energy levels by era with a spline regression curve"
+
+ggplot(
+  pink_floyd_albums_tidy,
+  aes(x = Year, 
+      y = Value)
+  ) +
+  geom_point(aes(color = Era), # Coloring points by era
+             size = 2.5 # For aesthetics only
+  ) +
+  geom_smooth(show.legend = FALSE, # There is only one line
+              se = FALSE, # Removing error ribbon
+              method = "lm", # Using a model
+              formula = y ~ ns(x, 3), # Using natural splines for flexibility
+              color = "#e7298a" # From Dark2 Palette for accessibility
+  ) +
+  labs(
+    title = "Trend in Energy Levels by Era",
+    x = "Release Year",
+    y = NULL,
+    color = NULL,
+    caption = "Source: Kaggle — Spotify Web API" # citing the source
+  ) +
+  theme_minimal() + # For a clear look
+  scale_color_brewer(palette = "Dark2") + # For accessible colors
+  theme(legend.position = "top") # For aesthetics only
+```
+
+As expected, this trend is not purely linear. The resulting scatterplot with a smooth trend line highlights distinct phases in the band’s musical journey. Following Barrett’s departure, energy levels dipped, reaching a low point with albums like *Atom Heart Mother*. A gradual recovery ensued, perhaps after the success of *Animals* which led to other energetic albums such as *The Dark Side of the Moon*, before descending again with more introspective and narrative-driven albums like *The Wall*. This cyclical pattern further underscores a experimental and diverse style, rather than Barrett's pyschedelic approach. To take a closer look and provide additional context on each album, I'll rank their energy levels and compare them to the overall average. 
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "calculating mean"
+
+mean_albums <- mean(pink_floyd_albums$Avg_Energy) # Calculating overall average energy level
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "visualizing data"
+#| fig-alt: "Barplot showing average energy levels by album"
+
+ggplot(
+  pink_floyd_albums, 
+  aes(x = Avg_Energy, 
+      y = reorder(Album_Name, 
+                  Avg_Energy), # Ordering by energy level
+      fill = Era) # Coloring by era
+) +
+  geom_col() + # Creating bar plot
+  geom_vline(xintercept = mean_albums, # Adding a vertical line for overall average
+             linetype = "dashed", 
+             size = 1 # Aesthetics only
+  ) +
+  labs(
+    title = "Average Energy Levels by Album",
+    x = "Energy Level",
+    y = NULL,
+    fill = NULL,
+    caption = "Source: Kaggle — Spotify Web API" # citing the source
+  ) +
+  theme_minimal() + # For a clear look
+  scale_fill_brewer(palette = "Dark2") + # For accessible colors
+  theme(legend.position = "top") # For aesthetics only
+```
+
+This ranking underscores the dominance of Pre-Barrett albums like *The Piper at the Gates of Dawn* and *A Saucerful of Secrets*, which sit at the high-energy end of the spectrum. Conversely, albums from the later Post-Barrett era, such as *The Wall* and *The Final Cut*, are situated at the lower-energy end, reflecting the band’s shift toward somber and reflective themes. Interestingly, the album *More* is at a unique position, aligning almost perfectly with the overall average energy level. This highlights its transitional nature as the band navigated Barrett’s absence and explored new creative directions.
+
+These patterns provide a strong understanding of Pink Floyd’s evolution, matching our hypotheses of a decrease in energy levels. But to rigorously evaluate the differences between the Pre-Barrett and Post-Barrett eras, we must turn to statistical significance testing.
+
+## A Momentary Lapse or Statistical Certainty?
+
+Visual trends are compelling, but statistical evidence is essential to confirm whether the observed differences in energy levels are meaningful. To test my hypothesis, I first calculated the average energy levels for each era.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "calculating averages"
+
+pink_floyd_era <- pink_floyd %>%
+  group_by(Era) %>% # Grouping by era
+  summarize(Avg_Energy = mean(Energy)) # Calculating average energy levels
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "displaying data"
+
+pink_floyd_era %>% 
+  gt() %>%  # For a nicer table
+  tab_header(title = "Average Energy Levels by Era") %>% 
+  cols_label(Era = "Era",
+             Avg_Energy = "Average Energy Level") # Aesthetic stuff
+```
+
+The results show a 16% reduction in average energy levels after Barrett’s departure. While this difference is large enough to consider significant, it could still be due to chance. To validate this finding, I conducted a two-sample t-test to compare the energy levels across the two eras.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "performing t-test"
+
+# Defining energy levels column for each era 
+pre_barrett <- pink_floyd$Energy[pink_floyd$Era == "Pre-Barrett"]
+post_barrett <- pink_floyd$Energy[pink_floyd$Era == "Post-Barrett"]
+
+# Performing two-sample t-test
+t.test(pre_barrett, post_barrett)
+```
+
+These results allow me to confidently **reject the null hypothesis** that there is no difference in energy levels between the two eras. With a p-value of 0.00104, well below the threshold of 0.05, this analysis confirms that the observed reduction in energy levels is statistically significant and unlikely to be due to random chance. This suggests a genuine shift in Pink Floyd’s musical style between the eras.
+
+The t-statistic of 3.503, a measure of how much the observed difference deviates from the expectation under the null hypothesis, indicates a strong separation between the energy levels of the two eras. In real terms, this reflects a marked departure from the spontaneous, high-energy sounds to the more introspective and deliberate compositions. The confidence interval, ranging from 0.0699 to 0.2587, provides a plausible range for the true difference in mean energy levels. So even in the most conservative estimate, the reduction in energy levels remains meaningful, reinforcing the impact of the shift.
+
+Additionally, the 16% difference between the average energy of the Pre-Barrett era (0.471) and the Post-Barrett era (0.307) highlights the band's shift. The results provide a statistical foundation for understanding Pink Floyd’s stylistic evolution.
+
+## The Final Cut
+
+Pink Floyd’s evolution after Syd Barrett’s departure is marked by a significant decline in energy levels, reflecting a clear shift from Barrett’s vibrant and spontaneous psychedelic influence to the band’s more introspective and experimental themes. Energy, used here as a proxy for intensity, mood, and instrumental texture, reveals not just a stylistic change but a broader transformation in their approach to music. This decline highlights how the band moved away from Barrett’s raw and lively sound to explore layered, contemplative compositions that defined their later works.
+
+While the data confirms a sharp, and significant reduction in energy, this transformation cannot be solely attributed to Barrett’s absence. Significance does not imply causation. External factors, including the maturation of progressive rock as a genre and the band’s artistic growth, undoubtedly influenced this evolution. Still, Barrett’s departure served as a catalyst, prompting Pink Floyd to adapt and innovate in response to this pivotal moment.
+
+Ultimately, the observed decline in energy levels underscores Pink Floyd’s journey from a band rooted in Barrett’s influence to one that redefined itself through reinvention and resilience. By focusing on energy as a central feature, this analysis reveals how Barrett’s departure shaped the band’s artistic trajectory, paving the way for their legacy as one of rock’s most innovative and enduring acts.
+
+
+
+
+
+
+
