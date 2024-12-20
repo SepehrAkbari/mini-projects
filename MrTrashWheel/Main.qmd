@@ -1,0 +1,401 @@
+---
+title: "Baltimorians & Their Trash"
+subtitle: "Investigating Trash, to get to know the People of Baltimore a little better"
+author: "Sepehr Akbari"
+date: "2024-10-16"
+abstract: "How do seasonal trends, daily routines, and special events influence the volume and composition of litter collected by Mr. Trash Wheel in Baltimore’s Inner Harbor, and what does this reveal about the city resident’s behavior?"
+format:
+  html:
+    theme: united
+    toc: true
+    code-fold: true
+    abstract-title: "Research Focus"
+embed-resources: true
+chunk_output_type: console
+---
+
+## Setup: Collecting The Garbage
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "packages & libraries"
+
+library(tidyverse) # for data manipulation and visualization
+library(gt) # for creating neater tables
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "loading data"
+
+trash_wheel <- read_csv("Data/trash_wheel.csv") # loading the data
+```
+
+## Unveiling The Waste Stream
+
+Mister Trash Wheel, an innovative trash interceptor in Baltimore’s Harbor, has been keeping the city’s waterways clean since 2014[^1]. But beyond collecting debris, the data it gathers offers a window into the habits of Baltimore’s residents. By analyzing the patterns in when and what kind of trash is collected, we can uncover insights into the city’s littering behaviors. What does the type of trash say about the city’s residents? How do events like the 4th of July or the changing of the seasons influence waste production? This project dives into the trash to reveal what they say about Baltimore’s rhythms.
+
+[^1]: [Mr. Trash Wheel](https://www.mrtrashwheel.com/)
+
+## Breaking Down The Debris
+
+To narrow our focus, I’ll be analyzing the data solely for Mister Trash Wheel in the Inner Harbor, where much of Baltimore’s social activity takes place. This allows us to explore behaviors related to the main areas of the city’s gatherings and event.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "filtering data"
+
+trash_wheel <- trash_wheel %>% # updating the original data frame
+  mutate(ID = tolower(ID)) %>% # convert ID to lowercase to make sure nothing is missedout
+  filter(ID == "mister") # filter out only the data to only include Mister Trash Wheel
+```
+
+I’ll modify the data-set to enable analysis by weekends, seasons, and crowd-heavy holidays[^2].
+
+[^2]: [United States Holidays & festivals](https://www.iexplore.com/articles/travel-guides%2Fnorth-america%2Funited-states%2Ffestivals-and-events)
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "flagging seasons"
+
+trash_wheel <- trash_wheel %>% # Updating the original data frame
+  mutate(
+    Month = tolower(Month), # convert Month to lowercase to make sure nothing is missedout
+    Season = case_when( # flagging the season based on the month
+      Month %in% c("december", "january", "february") ~ "Winter",
+      Month %in% c("march", "april", "may") ~ "Spring",
+      Month %in% c("june", "july", "august") ~ "Summer",
+      Month %in% c("september", "october", "november") ~ "Fall"
+    )
+  )
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "flagging weekends"
+
+trash_wheel <- trash_wheel %>% # updating the original data frame
+  # the `weekdays(Date)` function returns the day of the week for each date
+  mutate( # flagging the weekends 
+    IsWeekend = ifelse(weekdays(Date) %in% c("Saturday", "Sunday"), TRUE, FALSE) 
+  )
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "flagging holidays"
+
+trash_wheel <- trash_wheel %>% # updating the original data frame
+  # the `format(Date, %m-%d")` function returns the day of the month and day in m-d format
+  mutate(
+    IsHoliday = case_when(
+      format(Date, "%m-%d") == "12-31" ~ TRUE, # New Year's Eve
+      format(Date, "%m-%d") == "07-04" ~ TRUE, # Independence Day
+      format(Date, "%m-%d") == "03-17" ~ TRUE, # St. Patrick's Day
+      format(Date, "%m") == "02" & weekdays(Date) == "Sunday" & day(Date) <= 7 ~ TRUE, # Super Bowl Sunday
+      format(Date, "%m") == "11" & weekdays(Date) == "Friday" & as.integer(format(Date, "%d")) > 22 & as.integer(format(Date, "%d")) <= 28 ~ TRUE, # Black Friday
+      format(Date, "%m-%d") == "10-31" ~ TRUE, # Halloween
+      format(Date, "%m-%d") == "12-25" ~ TRUE, # Christmas
+      TRUE ~ FALSE # Default to FALSE if none of the conditions are met
+    )
+  )
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "flagging day-type"
+
+trash_wheel <- trash_wheel %>% # updating the original data frame
+  mutate( # labeling each row as Holiday, Weekend, or Weekday
+    DayType = case_when(
+      IsHoliday == TRUE ~ "Holiday",
+      IsWeekend == TRUE ~ "Weekend",
+      TRUE ~ "Weekday"
+    )
+  )
+```
+
+## Tidal Wave Of Trash
+
+I’ll begin by examining the seasons, focusing on how the volume of trash collected varies throughout the year.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "total seasonaly volume"
+
+seasonal_volume <- trash_wheel %>% # creating a new data frame
+  group_by(Season, Year) %>%
+  summarize( # calculating the total volume of trash collected in each season
+    TotalVolume = sum(Volume)
+  ) %>%
+  ungroup()
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "visualizing data"
+#| fig-alt: "Boxplot showing the Volume of Trash Collected Seasonaly"
+
+ggplot(
+  seasonal_volume, 
+  aes(
+    x = Season,
+    y = TotalVolume,
+    fill = Season) # I'm just using color for aesthetic and accessibility purposes here
+  ) +
+  geom_boxplot(show.legend = FALSE) + # box plot, not showing the legend
+  labs(
+    title = "Volume of Trash Collected Seasonaly",
+    x = "Season",
+    y = "Total Volume (Cubic Yards)",
+    caption = "mrtrashwheel.com"
+  ) +
+  scale_fill_brewer(palette = "Dark2") + # Ensuring the colors are accessible
+  theme_minimal() # For better readability
+```
+
+The plot reveals clear seasonal trends, showing that trash collection is generally highest during the summer and spring months, with lower volumes in the winter. The spread of the data in each season also shows variability, particularly in spring, where collection can range significantly. This suggests that seasonal factors, such as increased outdoor activities in warmer months, contribute to higher trash levels.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "average seasonaly volume"
+
+avg_seasonal_volume <- seasonal_volume %>% # creating a new data frame
+  group_by(Season) %>% 
+  summarize( # calculating the average volume of trash collected in each season
+    AverageVolume = mean(TotalVolume)
+  )
+```
+
+While the seasonal trend is clear, there are some details that raise questions—like why winter has an outlier higher than fall, or why spring shows a wider spread than summer. To gain a more precise understanding of these differences, it’s helpful to also examine the average volume of trash collected in each season.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "displaying data"
+
+avg_seasonal_volume %>% 
+  gt() %>%
+  cols_label(
+    AverageVolume = "Average Volume (Cubic Yards)"
+  ) %>% 
+  tab_header(
+    title = "Trash Volume Collected", 
+    subtitle = "seasonal comparison of the averege volume of trash collected")
+```
+
+The table provides a clearer view of seasonal differences in trash collection. As expected, warmer months like summer and spring see the highest volumes of trash, likely due to increased outdoor activities and events. In contrast, the colder winter months show significantly less waste, reflecting reduced public activity, maybe other than certain outlier dates such as new years eve. The high spread in spring could be due to the unpredictable weather, leading to more variable trash production.
+
+This seasonal shift in trash volumes highlights how people's behavior changes with the weather, and how these changes impact the cleanliness of the city’s waterways. 
+
+*But is weather the only factor locking people in or pushing them out?*
+
+## Weekday Woes and Weekend Wreckage
+
+To dig deeper I'm interested to explore how trash volumes fluctuate between regular weekdays, weekends, and crowd-heavy events like Holidays.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "daily average volume"
+
+volume_on_type <- trash_wheel %>% # creating a new data frame
+  group_by(DayType) %>%
+  summarize( # calculating the average volume of trash collected on each day type 
+    AverageTotalVolume = mean(Volume)
+  )
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "visualizing data"
+#| fig-alt: "Bar Chart showing Average Daily Volume of Trash Collected"
+
+ggplot(
+  volume_on_type, 
+  aes(
+    x = AverageTotalVolume, 
+    y = DayType, 
+    fill = DayType) # I'm just using color for aesthetic and accessibility purposes here
+  ) +
+  geom_bar( # bar chart
+    stat = "identity", # using the actual values for the bar heights instead of counting
+    show.legend = FALSE # not showing the legend
+  ) +
+  labs(
+    title = "Average Daily Volume of Trash Collected",
+    x = "Average Daily Volume (Cubic Yards)",
+    y = "Day Classification",
+    caption = "mrtrashwheel.com"
+  ) +
+  scale_fill_brewer(palette = "Dark2") + # Ensuring the colors are accessible
+  theme_minimal() # For better readability
+```
+
+This bar chart shows how the average daily volume of trash collected differs between weekends, weekdays, and holidays. Although the overall observation is that the volume of trash collected is about the same, interestingly, holidays have the lowest average trash volume, while weekdays see the highest, having in mind that offices, schools etc. are closed on holidays. This suggests that Baltimore’s littering behavior may be driven more by routine daily activity than special events. One might expect more trash on holidays due to gatherings and celebrations, but this data tells a different story. It’s possible that weekends in Baltimore are quieter and more relaxed, with fewer large gatherings, perhaps due to the city’s higher median age[^3]. Tourism might also play a role—while tourism is growing, Baltimore isn’t a major tourist hub[^4], meaning fewer large-scale events that would generate significant waste. Unlike Baltimore, a city with a teenage dominated population and significant tourism might expect to see notable spikes in trash on weekends and holidays.
+
+[^3]: [Baltimore City Demographics](https://worldpopulationreview.com/us-counties/maryland/baltimore-city)
+
+[^4]: [Baltimore Tourism](https://bbmr.baltimorecity.gov/sites/default/files/EIR%20-%20Q1%202023%20-%202023.07.05.pdf)
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "tidying data"
+
+# tidying the data, so we can do an analysis on the composition of trash collected
+composition_long <- trash_wheel %>% # creating a new data frame
+  pivot_longer( # converting the data from wide to long format
+    cols = `PlasticBottles`:`SportsBalls`, # selecting the trash composition columns
+    names_to = "TrashType",
+    values_to = "Collected"
+  )
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "daily average collected"
+# Now that I have a tidy data frame for collected trash based on composition, I do a group by and summary by DayType, to break them down by the type of day they were collected on
+trash_day_type <- composition_long %>% # creating a new data frame
+  group_by(DayType, TrashType) %>%
+  summarize( # calculating the average amount of each type of trash collected on each day type
+    AverageCollected = round(mean(Collected), 0) # I'm rounding to whole number, cause its more readable and won't have any significant impact in my plot's accuracy
+  ) %>%
+  ungroup()
+```
+
+But other than the amount of trash collected, the composition of that trash can also be potentially revealing. By breaking down the average amount of each type of trash collected on different days, we can gain insights into the city’s littering habits.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "visualizing data"
+#| fig-alt: "Bar Chart showing Average Composition of Trash Collected"
+
+ggplot(
+  trash_day_type, 
+  aes(
+    x = AverageCollected, 
+    y = TrashType, 
+    fill = DayType) # Using fill to differentiate the day types
+  ) +
+  geom_bar(
+    stat = "identity", # using the actual values for the bar heights instead of counting
+    position = "dodge" # dodging the bars to make them easier to compare across day types
+  ) +
+  labs(
+    title = "Average Composition of Trash Collected",
+    x = "Amount Collected",
+    y = "Trash Composition",
+    fill = "Classification", # Changing the legend title
+    caption = "mrtrashwheel.com"
+  ) +
+  scale_fill_brewer(palette = "Dark2") + # Ensuring the colors are accessible
+  theme_minimal() # For better readability
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "displaying data"
+
+# This is not really about the data, but more about the presentation of the data in a table format
+trash_day_type %>% 
+  pivot_wider( # converting the data from long to wide format
+    names_from = DayType, 
+    values_from = AverageCollected
+  ) %>%
+  gt() %>% 
+  cols_label(
+    TrashType = "Trash Type"
+  ) %>%
+  tab_header(
+    title = "Trash Composition Collected on Different Days",
+    subtitle = "comparison of the average composition of trash collected on different days"
+  )
+```
+
+Cigarette butts are obviously the most prevalent type of trash across all days, but what’s particularly interesting is how weekdays have the highest volume, with holidays seeing a noticeable drop. This could suggest that the city’s workers and employees, who are primarily present during the weekdays, are the primary contributors to cigarette litter. This aligns with the idea that during weekdays, when more people commute and spend time in the city for work, cigarette consumption and subsequent littering may be higher. This insight might be helpful in directing the anti-smoking campaigns toward a more targeted audience.
+
+Meanwhile, other types of trash, such as plastic bottles and plastic bags, remain relatively consistent across all types of days, indicating that these items are persistently littered, irrespective of the occasion. This may indicate that most of that trash is produced by fixed variables such as shops around the inner harbor area. Stricter regulations or incentives for businesses to reduce single-use plastics could help address this issue.
+
+The low number of glass bottles and sports balls suggests that these items may only appear sporadically, potentially tied to specific events or recreational activities during weekends or holidays. This could be an opportunity to target these events with more effective waste management strategies, such as pfands[^5] for glass bottles. 
+
+[^5]: [Berlin's Pfand System](https://allaboutberlin.com/guides/pfand-bottles)
+
+## The Trash Will Go On
+
+A key factor to explore is how these observed patterns have evolved over time. Analyzing this can reveal whether the trends we’ve identified remain consistent or if new behaviors and shifts in waste production are emerging. This insight can help us better understand year-over-year changes in Baltimore’s littering habits.
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "seasonaly collected overtime"
+
+# I make a new table that is organized by the season, year, and trash type, and then calculate the total amount of each type of trash collected in each season over time
+seasonal_overtime <- composition_long %>% # creating a new data frame
+  group_by(Season, Year, TrashType) %>%
+  summarize( # calculating the total amount of each type of trash collected in each season over time
+    TotalCollected = sum(Collected, na.rm = TRUE)
+  ) %>%
+  ungroup()
+```
+
+```{r}
+#| message: false
+#| warning: false
+#| filename: "visualizing data"
+#| fig-alt: "Area Chart showing Trash Composition Collected Seasonaly Over Time"
+
+ggplot(
+  seasonal_overtime, 
+  aes(
+    x = Year, 
+    y = TotalCollected, 
+    fill = TrashType) # Using fill to differentiate the trash types
+  ) +
+  geom_area(
+    stat = "identity", # using the actual values for the area heights instead of counting
+    position = "stack" # stacking the areas to make them easier to compare
+  ) +
+  facet_wrap(~Season) + # Faceting by season
+  labs(
+    title = "Trash Composition Collected Seasonaly Over Time",
+    x = "Year",
+    y = "Amount Collected",
+    fill = "Trash Composition",
+    caption = "mrtrashwheel.com"
+  ) +
+  scale_fill_brewer(palette = "Dark2") + # Ensuring the colors are accessible
+  theme_minimal() # For better readability
+```
+
+One key takeaway is that cigarette butts dominate the waste collected in all seasons. There’s a sharp decline in trash collected across all seasons after 2016, possibly due to improved waste management or changes in littering habits. This decline likely reflects Mr. Trash Wheel’s early impact, as the harbor hadn’t been cleaned for years prior[^6], leading to a backlog of waste that was cleared in the first few years of operation. The installation of other trash wheels in 2016 and 2018[^7] may have also reduced the amount collected by Mister Trash Wheel.
+
+[^6]: [The Outfall Article: Mr. Trash Wheel: The Legend Lives On](https://theoutfall.com/story/mr-trash-wheel-the-legend-lives-on/)
+
+[^7]: [Mr Trash Wheel](https://www.mrtrashwheel.com/trash-wheel-family)
+
+In recent years, trash collection has stabilized, suggesting that littering behaviors have become more consistent. Despite this, cigarette butts remain a constant source of litter, though the city’s anti-smoking campaigns[^8] may be contributing to a gradual decline in their collection. The more dramatic drop in summer and fall could also point to changing outdoor activities or more effective environmental efforts during peak seasons.
+
+[^8]: [Baltimore City Health Department](https://health.baltimorecity.gov/health-resources-topic/tobacco-smoking-cessation)
+
+## Wrapping It All Up (not in plastic)
+
+This analysis of Baltimore’s trash patterns provides valuable insights into the city’s lifestyle and environmental practices. Weekdays see the highest trash levels, likely tied to the daily rhythms of the city’s workforce, where adult smokers contribute significantly to litter. Encouragingly, anti-smoking campaigns have made a visible difference over time. Since the launch of Mr. Trash Wheel, the harbor has experienced remarkable improvement, with a growing sense of environmental responsibility among residents.
+
+Summers, with more outdoor activities, bring an increase in litter, yet the city remains quieter during major events, indicating that Baltimore draws a more local, family-driven crowd rather than bustling tourism. Notably, the reduced presence of glass and plastic in the waste suggests that effective recycling systems are taking root. However, plastic pollution still seems linked to fixed sources like restaurants and shops near the harbor, rather than individual overuse.
+
+In conclusion, Baltimore’s residents are steadily becoming more environmentally conscious, and Mr. Trash Wheel has been instrumental in this transformation; keeping the harbor cleaner and fostering awareness about the consequences of littering. With continued effort, the city is on a promising path toward a greener, more sustainable future.
